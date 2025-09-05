@@ -1,0 +1,27 @@
+{
+  "name": "splitwise",
+  "version": "1.0.0",
+  "description": "Modular expense sharing application with Angular frontend and FastAPI backend",
+  "scripts": {
+    "setup": "./setup.sh",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd splitwise-backend && poetry run fastapi dev app/main.py",
+    "dev:frontend": "cd splitwise-frontend && npm start",
+    "build": "cd splitwise-frontend && npm run build",
+    "install:backend": "cd splitwise-backend && poetry install",
+    "install:frontend": "cd splitwise-frontend && npm install"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "expense-sharing",
+    "splitwise",
+    "angular",
+    "fastapi",
+    "typescript",
+    "python"
+  ],
+  "author": "Devin AI",
+  "license": "MIT"
+}
