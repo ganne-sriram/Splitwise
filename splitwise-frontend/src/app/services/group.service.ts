@@ -31,4 +31,8 @@ export class GroupService {
   removeMember(groupId: number, userId: number): Observable<any> {
     return this.http.delete(`${this.apiUrl}/groups/${groupId}/members/${userId}`);
   }
+
+  getGroupBalances(groupId: number): Observable<any> {
+    return this.http.get<any>(`${this.apiUrl}/groups/${groupId}/balances`);
+  }
 }

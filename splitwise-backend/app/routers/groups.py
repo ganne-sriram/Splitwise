@@ -1,10 +1,12 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from typing import List
 from app.database.database import get_db
 from app.schemas.group import GroupCreate, GroupResponse, GroupWithMembers
 from app.models.group import Group, GroupMember
 from app.models.user import User
+from app.models.expense import Expense, ExpenseParticipant
 from app.core.dependencies import get_current_user
 
 router = APIRouter(prefix="/groups", tags=["groups"])
@@ -100,3 +102,53 @@ def remove_group_member(group_id: int, user_id: int, db: Session = Depends(get_d
     db.commit()
     
     return {"message": "Member removed successfully"}
+
+@router.get("/{group_id}/balances")
+def get_group_balances(group_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
+    membership = db.query(GroupMember).filter(
+        GroupMember.group_id == group_id,
+        GroupMember.user_id == current_user.id
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=403, detail="Not a member of this group")
+    
+    members = db.query(GroupMember).filter(GroupMember.group_id == group_id).all()
+    member_ids = [m.user_id for m in members]
+    
+    paid_by_user = {}
+    for user_id in member_ids:
+        total_paid = db.query(func.sum(Expense.amount)).filter(
+            Expense.group_id == group_id,
+            Expense.payer_id == user_id
+        ).scalar() or 0
+        paid_by_user[user_id] = total_paid
+    
+    owes_by_user = {}
+    for user_id in member_ids:
+        total_owes = db.query(func.sum(ExpenseParticipant.amount_owed)).join(
+            Expense, ExpenseParticipant.expense_id == Expense.id
+        ).filter(
+            Expense.group_id == group_id,
+            ExpenseParticipant.user_id == user_id
+        ).scalar() or 0
+        owes_by_user[user_id] = total_owes
+    
+    net_balances = {}
+    for user_id in member_ids:
+        net_balances[user_id] = paid_by_user[user_id] - owes_by_user[user_id]
+    
+    users = db.query(User).filter(User.id.in_(member_ids)).all()
+    user_map = {u.id: u for u in users}
+    
+    balances = []
+    for user_id, net_balance in net_balances.items():
+        user = user_map[user_id]
+        balances.append({
+            "user_id": user_id,
+            "user_name": user.name,
+            "total_paid": paid_by_user[user_id],
+            "total_owes": owes_by_user[user_id],
+            "net_balance": net_balance
+        })
+    
+    return {"group_id": group_id, "balances": balances}

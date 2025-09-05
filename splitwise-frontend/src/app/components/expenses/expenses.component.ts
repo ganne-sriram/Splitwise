@@ -53,6 +53,7 @@ import { User } from '../../models/user.model';
                     required
                     [(ngModel)]="newExpense.amount"
                     name="amount"
+                    (ngModelChange)="updateParticipantAmounts()"
                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
                     placeholder="0.00"
                   />
@@ -80,6 +81,7 @@ import { User } from '../../models/user.model';
                     [(ngModel)]="newExpense.group_id"
                     name="group"
                     required
+                    (ngModelChange)="loadGroupMembers()"
                     class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-green-500 focus:border-green-500"
                   >
                     <option value="">Select a group</option>
@@ -87,10 +89,33 @@ import { User } from '../../models/user.model';
                   </select>
                 </div>
               </div>
+              
+              <!-- Participants Selection -->
+              <div *ngIf="groupMembers.length > 0" class="mt-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Split between:</label>
+                <div class="space-y-2">
+                  <div *ngFor="let member of groupMembers" class="flex items-center">
+                    <input
+                      type="checkbox"
+                      [id]="'member-' + member.user_id"
+                      [checked]="isParticipantSelected(member.user_id)"
+                      (change)="toggleParticipant(member.user_id, $event)"
+                      class="h-4 w-4 text-green-600 focus:ring-green-500 border-gray-300 rounded"
+                    />
+                    <label [for]="'member-' + member.user_id" class="ml-2 text-sm text-gray-700">
+                      User ID: {{ member.user_id }}
+                    </label>
+                  </div>
+                </div>
+                <p class="text-xs text-gray-500 mt-1">
+                  Amount per person: {{ getAmountPerPerson() | currency }}
+                </p>
+              </div>
+
               <div class="mt-4 flex space-x-3">
                 <button
                   type="submit"
-                  [disabled]="loading"
+                  [disabled]="loading || newExpense.participants.length === 0"
                   class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md font-medium disabled:opacity-50"
                 >
                   {{ loading ? 'Adding...' : 'Add Expense' }}
@@ -154,6 +179,7 @@ import { User } from '../../models/user.model';
 export class ExpensesComponent implements OnInit {
   expenses: ExpenseWithParticipants[] = [];
   groups: Group[] = [];
+  groupMembers: any[] = [];
   showCreateForm = false;
   loading = false;
   selectedGroupId: number | null = null;
@@ -186,6 +212,61 @@ export class ExpensesComponent implements OnInit {
     });
   }
 
+  loadGroupMembers(): void {
+    if (!this.newExpense.group_id) {
+      this.groupMembers = [];
+      return;
+    }
+
+    this.groupService.getGroup(this.newExpense.group_id).subscribe({
+      next: (group) => {
+        this.groupMembers = group.members || [];
+        this.authService.getCurrentUser().subscribe({
+          next: (currentUser) => {
+            this.newExpense.participants = [{
+              user_id: currentUser.id,
+              amount_owed: 0
+            }];
+            this.updateParticipantAmounts();
+          }
+        });
+      },
+      error: (err) => {
+        console.error('Failed to load group members:', err);
+      }
+    });
+  }
+
+  isParticipantSelected(userId: number): boolean {
+    return this.newExpense.participants.some(p => p.user_id === userId);
+  }
+
+  toggleParticipant(userId: number, event: any): void {
+    if (event.target.checked) {
+      this.newExpense.participants.push({
+        user_id: userId,
+        amount_owed: 0
+      });
+    } else {
+      this.newExpense.participants = this.newExpense.participants.filter(p => p.user_id !== userId);
+    }
+    this.updateParticipantAmounts();
+  }
+
+  updateParticipantAmounts(): void {
+    if (this.newExpense.participants.length > 0 && this.newExpense.amount > 0) {
+      const amountPerPerson = this.newExpense.amount / this.newExpense.participants.length;
+      this.newExpense.participants.forEach(p => {
+        p.amount_owed = amountPerPerson;
+      });
+    }
+  }
+
+  getAmountPerPerson(): number {
+    if (this.newExpense.participants.length === 0) return 0;
+    return this.newExpense.amount / this.newExpense.participants.length;
+  }
+
   loadGroupExpenses(): void {
     if (!this.selectedGroupId) {
       this.expenses = [];
@@ -203,40 +284,22 @@ export class ExpensesComponent implements OnInit {
   }
 
   createExpense(): void {
-    if (!this.newExpense.description.trim() || !this.newExpense.amount || !this.newExpense.group_id) {
+    if (!this.newExpense.description.trim() || !this.newExpense.amount || !this.newExpense.group_id || this.newExpense.participants.length === 0) {
       return;
     }
 
     this.loading = true;
     
-    this.authService.getCurrentUser().subscribe({
-      next: (currentUser: User) => {
-        const expenseData: ExpenseCreate = {
-          ...this.newExpense,
-          participants: [
-            {
-              user_id: currentUser.id,
-              amount_owed: this.newExpense.amount
-            }
-          ]
-        };
-
-        this.expenseService.createExpense(expenseData).subscribe({
-          next: (expense) => {
-            if (this.selectedGroupId === this.newExpense.group_id) {
-              this.loadGroupExpenses();
-            }
-            this.cancelCreate();
-            this.loading = false;
-          },
-          error: (err) => {
-            console.error('Failed to create expense:', err);
-            this.loading = false;
-          }
-        });
+    this.expenseService.createExpense(this.newExpense).subscribe({
+      next: (expense) => {
+        if (this.selectedGroupId === this.newExpense.group_id) {
+          this.loadGroupExpenses();
+        }
+        this.cancelCreate();
+        this.loading = false;
       },
       error: (err) => {
-        console.error('Failed to get current user:', err);
+        console.error('Failed to create expense:', err);
         this.loading = false;
       }
     });
@@ -244,6 +307,7 @@ export class ExpensesComponent implements OnInit {
 
   cancelCreate(): void {
     this.showCreateForm = false;
+    this.groupMembers = [];
     this.newExpense = {
       description: '',
       amount: 0,
