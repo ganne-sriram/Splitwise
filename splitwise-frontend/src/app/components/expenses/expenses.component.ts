@@ -4,8 +4,10 @@ import { FormsModule } from '@angular/forms';
 import { RouterModule } from '@angular/router';
 import { ExpenseService } from '../../services/expense.service';
 import { GroupService } from '../../services/group.service';
+import { AuthService } from '../../services/auth.service';
 import { ExpenseCreate, ExpenseCategory, ExpenseWithParticipants } from '../../models/expense.model';
 import { Group } from '../../models/group.model';
+import { User } from '../../models/user.model';
 
 @Component({
   selector: 'app-expenses',
@@ -165,7 +167,8 @@ export class ExpensesComponent implements OnInit {
 
   constructor(
     private expenseService: ExpenseService,
-    private groupService: GroupService
+    private groupService: GroupService,
+    private authService: AuthService
   ) {}
 
   ngOnInit(): void {
@@ -205,16 +208,35 @@ export class ExpensesComponent implements OnInit {
     }
 
     this.loading = true;
-    this.expenseService.createExpense(this.newExpense).subscribe({
-      next: (expense) => {
-        if (this.selectedGroupId === this.newExpense.group_id) {
-          this.loadGroupExpenses();
-        }
-        this.cancelCreate();
-        this.loading = false;
+    
+    this.authService.getCurrentUser().subscribe({
+      next: (currentUser: User) => {
+        const expenseData: ExpenseCreate = {
+          ...this.newExpense,
+          participants: [
+            {
+              user_id: currentUser.id,
+              amount_owed: this.newExpense.amount
+            }
+          ]
+        };
+
+        this.expenseService.createExpense(expenseData).subscribe({
+          next: (expense) => {
+            if (this.selectedGroupId === this.newExpense.group_id) {
+              this.loadGroupExpenses();
+            }
+            this.cancelCreate();
+            this.loading = false;
+          },
+          error: (err) => {
+            console.error('Failed to create expense:', err);
+            this.loading = false;
+          }
+        });
       },
       error: (err) => {
-        console.error('Failed to create expense:', err);
+        console.error('Failed to get current user:', err);
         this.loading = false;
       }
     });
